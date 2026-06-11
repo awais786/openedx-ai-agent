@@ -106,8 +106,15 @@ async def _discover(config: Config, target: str) -> dict[str, Any]:
 
 def discover(config: Config, target: str = "django") -> dict[str, Any]:
     """Scan the org and write ``<campaign_dir>/inventory.json``. Returns the inventory."""
+    from .state import load_state, set_status  # local import to avoid cycle at module load
+
     inventory = asyncio.run(_discover(config, target))
     config.campaign_dir.mkdir(parents=True, exist_ok=True)
     out = config.campaign_dir / "inventory.json"
     out.write_text(json.dumps(inventory, indent=2) + "\n")
+
+    known = load_state(config)["repos"]
+    for entry in inventory["repos"]:
+        if entry["repo"] not in known:  # don't regress repos already further along
+            set_status(config, entry["repo"], "discovered")
     return inventory

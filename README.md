@@ -88,11 +88,37 @@ Four agents map onto the process (PM → Dev → Reviewer → Fixer), with hard 
 - **Draft PRs only; humans merge.**
 - **Escalation is success, not failure.** Anything outside the playbook stops and reports.
 
+## Usage
+
+```bash
+git clone https://github.com/awais786/openedx-ai-agent.git && cd openedx-ai-agent
+uv venv && uv pip install -e ".[dev]"        # or: pip install -e ".[dev]"
+
+export GITHUB_TOKEN=ghp_...                  # discovery/audit (read-only API access)
+export ANTHROPIC_API_KEY=sk-ant-...          # oea upgrade (the agent session)
+```
+
+The campaign flow, as CLI commands:
+
+```bash
+oea discover --target django                 # scan the org → campaign/inventory.json
+oea audit --eol                              # who's on end-of-life versions?
+oea draft tickets --new-version 6.2 --old-version 5.2
+                                             # tickets + master issue → campaign/drafts/
+                                             # (YOU review and post them)
+oea upgrade <repo> --new-version 6.2 --old-version 5.2
+                                             # agent upgrades a fresh clone, local-only
+                                             # (YOU review the branch, push, open draft PR)
+```
+
+Safety note for first runs: point at a **fork** (`oea --org <your-user> upgrade <repo> …`),
+never upstream, until you trust the output.
+
 ## Status
 
-Spec phase. The playbooks are the product right now — they encode the judgment from the
-hand-run campaigns and double as the agents' instructions. Agent implementation comes next,
-validated first on small, low-blast-radius repos (the same way the human campaigns build
+Working MVP. The playbooks encode the judgment from the hand-run campaigns and double as
+the agents' instructions — `oea upgrade` literally uses them as its system prompt. Being
+validated on small, low-blast-radius repos first (the same way the human campaigns build
 confidence).
 
 ## Provenance

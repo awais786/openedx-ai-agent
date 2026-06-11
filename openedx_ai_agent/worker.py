@@ -15,6 +15,7 @@ from pathlib import Path
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 
 from .config import Config
+from .state import set_status
 
 DEFAULT_MODEL = "claude-sonnet-4-6"
 MAX_TURNS = 60
@@ -155,6 +156,14 @@ def upgrade_repo(
         branch=branch,
     )
     _write_report(config, worker_result)
+    set_status(
+        config,
+        repo,
+        "agent_succeeded" if succeeded else "escalated" if escalated else "failed",
+        branch=branch,
+        checkout=str(checkout),
+        cost_usd=worker_result.cost_usd,
+    )
     return worker_result
 
 

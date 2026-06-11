@@ -15,6 +15,8 @@ from .classify import eol_status
 from .config import Config
 from .discovery import discover as run_discovery
 from .drafts import draft_tickets
+from .review import render_report, review_checkout
+from .state import STATUSES, load_state, set_status, summarize
 
 
 @click.group()
@@ -94,6 +96,10 @@ def draft(config: Config, kind: str, new_version: str, old_version: str) -> None
     inventory = _load_inventory(config)
     drafts_dir = config.campaign_dir / "drafts"
     written = draft_tickets(inventory, drafts_dir, new_version, old_version)
+    known = load_state(config)["repos"]
+    for entry in inventory["repos"]:
+        if known.get(entry["repo"], {}).get("status") in (None, "discovered"):
+            set_status(config, entry["repo"], "ticket_drafted")
     click.echo(f"{len(written)} drafts written to {drafts_dir}/ — review before posting anything.")
 
 
@@ -140,6 +146,70 @@ def upgrade(
     click.echo("Review the diff, then push the branch and open a draft PR yourself.")
     if not result.succeeded:
         sys.exit(1)
+
+
+@main.command()
+@click.argument("checkout", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option("--repo", default=None, help="Repo name for the report (default: directory name).")
+@click.option("--target", default="django", show_default=True)
+@click.option("--new-version", required=True)
+@click.option("--old-version", required=True)
+@click.option("--base", default="origin/HEAD", show_default=True, help="Ref to diff against.")
+@click.pass_obj
+def review(
+    config: Config,
+    checkout: Path,
+    repo: str | None,
+    target: str,
+    new_version: str,
+    old_version: str,
+    base: str,
+) -> None:
+    """Run the mechanical definition-of-done checks on an upgrade CHECKOUT."""
+    repo = repo or checkout.name
+    checks = review_checkout(checkout, target, new_version, old_version, base=base)
+    report = render_report(repo, checks)
+
+    reviews_dir = config.campaign_dir / "reviews"
+    reviews_dir.mkdir(parents=True, exist_ok=True)
+    (reviews_dir / f"{repo}.md").write_text(report)
+
+    for check in checks:
+        click.echo(f"{'✅' if check.passed else '❌'} {check.name}: {check.detail}")
+    failed = [c for c in checks if not c.passed]
+    click.echo(f"\nReport: {reviews_dir / (repo + '.md')}")
+    if failed:
+        click.echo(f"{len(failed)} check(s) failed — fix before the PR leaves draft.")
+        sys.exit(1)
+
+
+@main.command()
+@click.option(
+    "--set", "transition", default=None, metavar="REPO=STATUS",
+    help=f"Record a human transition, e.g. edx-val=claimed. Statuses: {', '.join(STATUSES)}",
+)
+@click.pass_obj
+def status(config: Config, transition: str | None) -> None:
+    """Campaign dashboard from campaign/state.json."""
+    if transition:
+        repo, _, new_status = transition.partition("=")
+        if not new_status:
+            raise click.ClickException("expected REPO=STATUS")
+        try:
+            set_status(config, repo, new_status)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        click.echo(f"{repo} → {new_status}")
+        return
+
+    state = load_state(config)
+    if not state["repos"]:
+        click.echo("No campaign state yet — run `oea discover`, `oea upgrade`, or `--set`.")
+        return
+    for bucket, repos in summarize(state).items():
+        click.echo(f"{bucket} ({len(repos)})")
+        for repo in repos:
+            click.echo(f"  {repo}")
 
 
 if __name__ == "__main__":
