@@ -29,6 +29,53 @@ DRF, whatever moves next. The generic process alone is enough to run a campaign;
 calendar, watchlist) added when a real campaign for that target kicks off, the way
 `django.md` was distilled from the 4.2/5.2 campaigns.
 
+## How a campaign flows
+
+```mermaid
+flowchart TD
+    A["oea discover<br/>scan org repos for the target dep"] --> B["campaign/inventory.json"]
+    B --> C["oea audit --eol<br/>version hygiene report"]
+    B --> D["oea draft tickets<br/>per-repo tickets + master issue"]
+
+    D --> E{{"🧑 Human reviews drafts,<br/>posts to GitHub + Discourse"}}
+    E --> F["Claim window:<br/>maintainers pick their repos' tickets"]
+
+    F -->|"ticket claimed"| G["🧑 Maintainer upgrades<br/>their own repo"]
+    F -->|"unclaimed after window"| H["oea upgrade repo<br/>agent works in a fresh clone"]
+
+    H -->|"done"| I["campaign/runs/repo.md<br/>+ local branch with commits"]
+    H -->|"blocker outside playbook"| J["campaign/escalations/repo.md<br/>🛑 stops, never force-fixes"]
+
+    I --> K{{"🧑 Human reviews the diff,<br/>pushes branch, opens DRAFT PR"}}
+    G --> L["Draft PR"]
+    K --> L
+    L --> M{{"🧑 Human merges"}}
+
+    style E fill:#fff3cd,stroke:#b8860b
+    style K fill:#fff3cd,stroke:#b8860b
+    style M fill:#fff3cd,stroke:#b8860b
+    style J fill:#f8d7da,stroke:#a94442
+```
+
+Yellow nodes are the **human gates** — every outward-facing or irreversible action passes
+through one. The agent never posts, never pushes, never merges.
+
+### Inside `oea upgrade` (the Dev worker)
+
+```mermaid
+flowchart LR
+    A["clone repo<br/>+ new branch"] --> B["codemod first<br/>separate commit"]
+    B --> C["per-repo checklist:<br/>tox, CI matrix, classifiers,<br/>requirements, version, changelog"]
+    C --> D["run tests on<br/>BOTH versions"]
+    D -->|"red"| E["classify failure<br/>via taxonomy"]
+    E -->|"known pattern"| F["apply fix recipe"] --> D
+    E -->|"unknown"| G["🛑 ESCALATE:<br/>summary to a human"]
+    D -->|"green on both"| H["commit + run report<br/>with cost and diffstat"]
+```
+
+The session's system prompt is the playbook itself (`campaign-process.md` + the target's
+knowledge pack) — the agent executes the documented process, it doesn't improvise one.
+
 ## The agent model
 
 Four agents map onto the process (PM → Dev → Reviewer → Fixer), with hard invariants:
