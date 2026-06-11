@@ -21,8 +21,13 @@ mechanics.
 |---|---|
 | [`docs/campaign-process.md`](docs/campaign-process.md) | The **target-agnostic process**: discovery → launch/ticketing → small-to-big waves → dual-compat bridge → drop & done. Includes the per-repo checklist, failure taxonomy, upstream-contribution ladder, and definition of done. |
 | [`docs/playbooks/django.md`](docs/playbooks/django.md) | Django-specific knowledge: release calendar, breaking-change pattern table (each entry backed by a real campaign PR), `django-upgrade` tooling, watchlist. |
-| [`docs/playbooks/python.md`](docs/playbooks/python.md) | Python campaign playbook (stub — to be filled from the 3.11/3.12 campaign). |
-| [`docs/playbooks/celery.md`](docs/playbooks/celery.md) | Celery campaign playbook (stub). |
+
+**The agent is target-agnostic.** `oea discover --target <dep>` and
+`oea upgrade <repo> --target <dep>` work for any upgradeable dependency — Python, Celery,
+DRF, whatever moves next. The generic process alone is enough to run a campaign; a
+`docs/playbooks/<target>.md` file is an optional knowledge pack (pattern table, codemod,
+calendar, watchlist) added when a real campaign for that target kicks off, the way
+`django.md` was distilled from the 4.2/5.2 campaigns.
 
 ## The agent model
 
