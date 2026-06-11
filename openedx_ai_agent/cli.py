@@ -7,6 +7,7 @@ or merges; outward-facing artifacts land in ``campaign/drafts/`` for review.
 import json
 import sys
 from datetime import date
+from pathlib import Path
 
 import click
 
@@ -94,6 +95,51 @@ def draft(config: Config, kind: str, new_version: str, old_version: str) -> None
     drafts_dir = config.campaign_dir / "drafts"
     written = draft_tickets(inventory, drafts_dir, new_version, old_version)
     click.echo(f"{len(written)} drafts written to {drafts_dir}/ — review before posting anything.")
+
+
+@main.command()
+@click.argument("repo")
+@click.option("--target", default="django", show_default=True)
+@click.option("--new-version", required=True, help="Version to add support for (e.g. 6.0).")
+@click.option("--old-version", required=True, help="Version to keep dual-compat with (e.g. 5.2).")
+@click.option("--model", default=None, help="Model for the worker session (default: claude-sonnet-4-6).")
+@click.option(
+    "--playbook-dir",
+    default="docs",
+    show_default=True,
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    help="Directory containing campaign-process.md and playbooks/.",
+)
+@click.pass_obj
+def upgrade(
+    config: Config,
+    repo: str,
+    target: str,
+    new_version: str,
+    old_version: str,
+    model: str | None,
+    playbook_dir: Path,
+) -> None:
+    """Run the upgrade agent against a fresh clone of REPO (local-only; never pushes)."""
+    from .worker import DEFAULT_MODEL, upgrade_repo  # heavy import — keep CLI startup fast
+
+    click.echo(f"Cloning {config.org}/{repo} and starting the upgrade agent…")
+    result = upgrade_repo(
+        config,
+        repo,
+        target=target,
+        new_version=new_version,
+        old_version=old_version,
+        playbook_dir=playbook_dir,
+        model=model or DEFAULT_MODEL,
+    )
+    outcome = "succeeded" if result.succeeded else "ESCALATED" if result.escalated else "FAILED"
+    cost = f"${result.cost_usd:.2f}" if result.cost_usd is not None else "n/a"
+    click.echo(f"\n{outcome} — branch {result.branch} in {result.checkout} (cost {cost})")
+    click.echo(f"Report: {config.campaign_dir / 'runs' / (repo + '.md')}")
+    click.echo("Review the diff, then push the branch and open a draft PR yourself.")
+    if not result.succeeded:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
