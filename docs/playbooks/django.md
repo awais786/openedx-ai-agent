@@ -62,6 +62,12 @@ series with 3.10/3.11. The Python-floor campaign must finish first. Also `asgire
 Django officially suggests third-party apps drop Django < 5.2 after 6.0 ships — matching our
 drop policy.
 
+**Tox/CI matrix trap:** while a repo still tests Python 3.11, the 6.0 env must be
+constrained — `py311-django60` is an invalid combination. Write the envlist in two factors
+(e.g. `py{311,312}-django{52}, py{312}-django{60}`) and mirror the same exclusion in the CI
+matrix (`exclude:` entry or separate matrix rows). Do NOT silently drop py311 from the
+whole matrix to simplify — that's a support change needing its own decision.
+
 **Removed in 6.0:**
 
 | Pattern | Symptom | Fix |
