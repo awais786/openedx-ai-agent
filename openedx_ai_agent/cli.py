@@ -84,13 +84,25 @@ def init(config: Config, target: str, old_version: str, new_version: str) -> Non
 
 @main.command()
 @click.option("--target", default=None, help="Dependency to scan for (default: campaign.json, else django).")
+@click.option(
+    "--repos", default=None,
+    help="Comma-separated repo names, or @file with one name per line — skips the org walk.",
+)
 @click.pass_obj
-def discover(config: Config, target: str | None) -> None:
-    """Scan the org for repos declaring TARGET; write campaign/inventory.json."""
+def discover(config: Config, target: str | None, repos: str | None) -> None:
+    """Scan the org (or --repos) for repos declaring TARGET; write campaign/inventory.json."""
     target = target or (load_campaign(config) or {}).get("target") or "django"
+    repos_filter: list[str] | None = None
+    if repos:
+        if repos.startswith("@"):
+            repos_filter = [
+                line.strip() for line in Path(repos[1:]).read_text().splitlines() if line.strip()
+            ]
+        else:
+            repos_filter = [name.strip() for name in repos.split(",") if name.strip()]
     if not config.github_token:
         click.echo("warning: GITHUB_TOKEN not set — unauthenticated API limits are low.", err=True)
-    inventory = run_discovery(config, target)
+    inventory = run_discovery(config, target, repos_filter)
     click.echo(
         f"Scanned {inventory['repos_scanned']} repos in {inventory['org']}: "
         f"{len(inventory['repos'])} declare {target}."

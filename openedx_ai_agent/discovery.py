@@ -30,8 +30,17 @@ FILES_TO_CHECK = (
 CONCURRENCY = 10
 
 
+#: Primary languages worth inspecting for Python dependency targets. ``None``
+#: covers repos GitHub couldn't classify (docs-heavy repos can still ship Python).
+_PYTHON_LANGUAGES = {"Python", None}
+
+
 async def _fetch_org_repos(client: httpx.AsyncClient, config: Config) -> list[dict[str, Any]]:
-    """All non-archived, non-fork repos in the org (paginated)."""
+    """Non-archived, non-fork, Python-language repos in the org (paginated).
+
+    The language filter is free (it's in the listing response) and roughly halves
+    the scan — frontend-* JavaScript repos never get file fetches.
+    """
     repos: list[dict[str, Any]] = []
     page = 1
     while True:
@@ -44,8 +53,26 @@ async def _fetch_org_repos(client: httpx.AsyncClient, config: Config) -> list[di
         batch = resp.json()
         if not batch:
             break
-        repos.extend(r for r in batch if not r["archived"] and not r["fork"])
+        repos.extend(
+            r
+            for r in batch
+            if not r["archived"] and not r["fork"] and r.get("language") in _PYTHON_LANGUAGES
+        )
         page += 1
+    return repos
+
+
+async def _fetch_named_repos(
+    client: httpx.AsyncClient, config: Config, names: list[str]
+) -> list[dict[str, Any]]:
+    """Metadata for an explicit repo list — skips the org walk entirely."""
+    repos: list[dict[str, Any]] = []
+    for name in names:
+        resp = await client.get(
+            f"{GITHUB_API}/repos/{config.org}/{name}", headers=config.github_headers
+        )
+        resp.raise_for_status()
+        repos.append(resp.json())
     return repos
 
 
@@ -88,10 +115,13 @@ async def _inspect_repo(
     }
 
 
-async def _discover(config: Config, target: str) -> dict[str, Any]:
+async def _discover(config: Config, target: str, repos_filter: list[str] | None) -> dict[str, Any]:
     semaphore = asyncio.Semaphore(CONCURRENCY)
     async with httpx.AsyncClient(timeout=30) as client:
-        repos = await _fetch_org_repos(client, config)
+        if repos_filter:
+            repos = await _fetch_named_repos(client, config, repos_filter)
+        else:
+            repos = await _fetch_org_repos(client, config)
         entries = await asyncio.gather(
             *(_inspect_repo(client, config, repo, target, semaphore) for repo in repos)
         )
@@ -104,11 +134,13 @@ async def _discover(config: Config, target: str) -> dict[str, Any]:
     }
 
 
-def discover(config: Config, target: str = "django") -> dict[str, Any]:
-    """Scan the org and write ``<campaign_dir>/inventory.json``. Returns the inventory."""
+def discover(
+    config: Config, target: str = "django", repos_filter: list[str] | None = None
+) -> dict[str, Any]:
+    """Scan the org (or an explicit repo list) and write ``<campaign_dir>/inventory.json``."""
     from .state import load_state, set_status  # local import to avoid cycle at module load
 
-    inventory = asyncio.run(_discover(config, target))
+    inventory = asyncio.run(_discover(config, target, repos_filter))
     config.campaign_dir.mkdir(parents=True, exist_ok=True)
     out = config.campaign_dir / "inventory.json"
     out.write_text(json.dumps(inventory, indent=2) + "\n")

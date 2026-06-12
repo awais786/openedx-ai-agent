@@ -9,11 +9,11 @@ from openedx_ai_agent.config import Config
 from openedx_ai_agent.discovery import GITHUB_API, discover
 
 ORG_REPOS = [
-    {"name": "openedx-filters", "archived": False, "fork": False,
+    {"name": "openedx-filters", "archived": False, "fork": False, "language": "Python",
      "default_branch": "main", "pushed_at": "2026-06-01T00:00:00Z"},
-    {"name": "old-archived-thing", "archived": True, "fork": False,
+    {"name": "old-archived-thing", "archived": True, "fork": False, "language": "Python",
      "default_branch": "master", "pushed_at": "2020-01-01T00:00:00Z"},
-    {"name": "frontend-app-learning", "archived": False, "fork": False,
+    {"name": "frontend-app-learning", "archived": False, "fork": False, "language": "JavaScript",
      "default_branch": "main", "pushed_at": "2026-06-01T00:00:00Z"},
 ]
 
@@ -41,7 +41,8 @@ def test_discover_writes_inventory(tmp_path):
     config = Config(org="testorg", campaign_dir=tmp_path / "campaign")
     inventory = discover(config, target="django")
 
-    assert inventory["repos_scanned"] == 2  # archived repo excluded
+    # archived repo AND the JavaScript frontend repo are excluded before file fetches
+    assert inventory["repos_scanned"] == 1
     assert [r["repo"] for r in inventory["repos"]] == ["openedx-filters"]
     entry = inventory["repos"][0]
     assert entry["classification"] == "library"
@@ -50,3 +51,21 @@ def test_discover_writes_inventory(tmp_path):
 
     on_disk = json.loads((tmp_path / "campaign" / "inventory.json").read_text())
     assert on_disk == inventory
+
+
+@respx.mock
+def test_discover_explicit_repo_list_skips_org_walk(tmp_path):
+    respx.get(f"{GITHUB_API}/repos/testorg/openedx-filters").mock(
+        return_value=Response(200, json=ORG_REPOS[0])
+    )
+    respx.get(f"{GITHUB_API}/repos/testorg/openedx-filters/contents/tox.ini").mock(
+        return_value=Response(200, text=FILTERS_TOX)
+    )
+    respx.get(url__regex=rf"{GITHUB_API}/repos/testorg/.+/contents/.+").mock(
+        return_value=Response(404)
+    )
+    # NOTE: no /orgs/testorg/repos route mocked — a call to it would error the test.
+
+    config = Config(org="testorg", campaign_dir=tmp_path / "campaign")
+    inventory = discover(config, target="django", repos_filter=["openedx-filters"])
+    assert [r["repo"] for r in inventory["repos"]] == ["openedx-filters"]
