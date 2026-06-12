@@ -66,14 +66,31 @@ for maintainers; the Dev agent picks up only tickets still unclaimed after the w
 where a maintainer asks for help. This keeps the community engaged (the campaign's real
 long-term asset) while guaranteeing nothing stalls.
 
-## Phase 1 — Foundation dependencies first
+## Phase 1 — Libraries first (hard gate before anything else)
 
-Upgrade order is dictated by the dependency graph, not alphabet:
+**ALL libraries get dual-compat (old + new version, e.g. 4.2 + 5.2) before any service
+starts.** Services consume these libraries, so an incomplete library tier blocks the whole
+fleet — Phase 1 is a gate, not a suggestion. Within the tier, order by the dependency
+graph, not alphabet:
 
 1. Shared low-level libs (edx-django-utils, edx-drf-extensions, opaque-keys, …)
 2. Mid-tier libs (openedx-events, openedx-filters, edx-celeryutils, …)
-3. Services (course-discovery, credentials, …)
-4. openedx-platform last — it consumes everything above via constraints.
+
+Each library must be **released to PyPI** with dual support to count as done.
+
+## Phase 2 — Services: independent, parallel, new-version-only
+
+Once the library gate clears, services (course-discovery, credentials, edx-notes-api, …)
+are **independent of each other** — none blocks another, so they can be upgraded in
+parallel by different maintainers (or agent runs).
+
+**Services flip directly to the new version — no dual-compat needed.** They are deployed
+applications; nobody imports them at a different Django version. Dual-compat is a
+*library* obligation (consumers sit at mixed versions during the transition); a service
+just upgrades and deploys (5.2-campaign precedent, #339: "upgrade Django services to run
+*exclusively* on 5.2").
+
+Cross-phase rules:
 
 - **Ordering rule: smallest packages first, step by step toward the big ones.** Size means
   blast radius, not just lines of code — start where a mistake is cheap and the feedback
@@ -82,15 +99,12 @@ Upgrade order is dictated by the dependency graph, not alphabet:
 - **Critical-usage dependencies get special care.** django-storages is the canonical
   example: its API sits under file handling across the platform (uploads, certificates,
   exports), so changes there are high-risk regardless of diff size — these are where the
-  dual-compat bridge (Phase 3) and extra verification matter most.
-- Coordinate with repo maintainers / the relevant working group; a new library version must
-  be **released to PyPI** before dependents can bump constraints.
-
-## Phase 2 — Per-repo upgrade waves
-
-Run the per-repo checklist (below) across each tier.
+  dual-compat bridge and extra verification matter most.
+- Coordinate with repo maintainers / the relevant working group throughout.
 
 ## Phase 3 — The platform: the dual-compatibility bridge
+
+openedx-platform goes last — it consumes everything above via constraints.
 
 **Core strategy: never a big-bang switch.** The platform crosses via a bridge period in
 three strict stages:
