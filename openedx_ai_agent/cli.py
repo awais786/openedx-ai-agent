@@ -11,6 +11,7 @@ from pathlib import Path
 
 import click
 
+from .campaign import init_campaign, load_campaign
 from .classify import eol_status
 from .config import Config
 from .discovery import discover as run_discovery
@@ -35,11 +36,58 @@ def _load_inventory(config: Config) -> dict:
     return json.loads(path.read_text())
 
 
+def _resolve_versions(
+    config: Config,
+    target: str | None,
+    new_version: str | None,
+    old_version: str | None,
+    require_target: bool = True,
+) -> tuple[str | None, str, str]:
+    """Flags win; otherwise fall back to campaign.json (written by `oea init`)."""
+    campaign = load_campaign(config) or {}
+    target = target or campaign.get("target")
+    new_version = new_version or campaign.get("new_version")
+    old_version = old_version or campaign.get("old_version")
+    required = [("--new-version", new_version), ("--old-version", old_version)]
+    if require_target:
+        required.insert(0, ("--target", target))
+    missing = [name for name, value in required if not value]
+    if missing:
+        raise click.ClickException(
+            f"missing {', '.join(missing)} — pass the flag(s) or run `oea init` first."
+        )
+    return target, new_version, old_version
+
+
 @main.command()
-@click.option("--target", default="django", show_default=True, help="Dependency to scan for.")
+@click.option("--target", prompt="Which package (e.g. django)", help="Dependency to upgrade.")
+@click.option("--old-version", prompt="Existing version (e.g. 5.2)", help="Version currently supported.")
+@click.option("--new-version", prompt="Target version (e.g. 6.0)", help="Version to upgrade to.")
 @click.pass_obj
-def discover(config: Config, target: str) -> None:
+def init(config: Config, target: str, old_version: str, new_version: str) -> None:
+    """Start a campaign: capture (package, existing, target) and fetch release notes."""
+    campaign, fetched = init_campaign(config, target, old_version, new_version)
+    click.echo(f"\nCampaign initialized: {target} {old_version} → {new_version} (org: {campaign['org']})")
+    if fetched:
+        click.echo("Release notes fetched (the breaking-changes source for Phase 0):")
+        for path in fetched:
+            click.echo(f"  {path}")
+    else:
+        click.echo(
+            f"No release-notes source configured for {target!r} — supply breaking-changes "
+            f"knowledge via docs/playbooks/{target}.md instead."
+        )
+    click.echo(
+        "\nNext: review the notes, update the playbook pattern table, then `oea discover`."
+    )
+
+
+@main.command()
+@click.option("--target", default=None, help="Dependency to scan for (default: campaign.json, else django).")
+@click.pass_obj
+def discover(config: Config, target: str | None) -> None:
     """Scan the org for repos declaring TARGET; write campaign/inventory.json."""
+    target = target or (load_campaign(config) or {}).get("target") or "django"
     if not config.github_token:
         click.echo("warning: GITHUB_TOKEN not set — unauthenticated API limits are low.", err=True)
     inventory = run_discovery(config, target)
@@ -88,11 +136,14 @@ def audit(config: Config, eol_only: bool) -> None:
 
 @main.command()
 @click.argument("kind", type=click.Choice(["tickets"]))
-@click.option("--new-version", required=True, help="Target version being added (e.g. 6.2).")
-@click.option("--old-version", required=True, help="Version to keep dual-compat with (e.g. 5.2).")
+@click.option("--new-version", default=None, help="Target version being added (default: campaign.json).")
+@click.option("--old-version", default=None, help="Dual-compat version (default: campaign.json).")
 @click.pass_obj
-def draft(config: Config, kind: str, new_version: str, old_version: str) -> None:
+def draft(config: Config, kind: str, new_version: str | None, old_version: str | None) -> None:
     """Draft campaign artifacts (tickets + master issue) for HUMAN review — never posted."""
+    _, new_version, old_version = _resolve_versions(
+        config, None, new_version, old_version, require_target=False
+    )
     inventory = _load_inventory(config)
     drafts_dir = config.campaign_dir / "drafts"
     written = draft_tickets(inventory, drafts_dir, new_version, old_version)
@@ -105,9 +156,9 @@ def draft(config: Config, kind: str, new_version: str, old_version: str) -> None
 
 @main.command()
 @click.argument("repo")
-@click.option("--target", default="django", show_default=True)
-@click.option("--new-version", required=True, help="Version to add support for (e.g. 6.0).")
-@click.option("--old-version", required=True, help="Version to keep dual-compat with (e.g. 5.2).")
+@click.option("--target", default=None, help="Dependency (default: campaign.json).")
+@click.option("--new-version", default=None, help="Version to add support for (default: campaign.json).")
+@click.option("--old-version", default=None, help="Dual-compat version (default: campaign.json).")
 @click.option("--model", default=None, help="Model for the worker session (default: claude-sonnet-4-6).")
 @click.option(
     "--playbook-dir",
@@ -120,14 +171,16 @@ def draft(config: Config, kind: str, new_version: str, old_version: str) -> None
 def upgrade(
     config: Config,
     repo: str,
-    target: str,
-    new_version: str,
-    old_version: str,
+    target: str | None,
+    new_version: str | None,
+    old_version: str | None,
     model: str | None,
     playbook_dir: Path,
 ) -> None:
     """Run the upgrade agent against a fresh clone of REPO (local-only; never pushes)."""
     from .worker import DEFAULT_MODEL, upgrade_repo  # heavy import — keep CLI startup fast
+
+    target, new_version, old_version = _resolve_versions(config, target, new_version, old_version)
 
     click.echo(f"Cloning {config.org}/{repo} and starting the upgrade agent…")
     result = upgrade_repo(
@@ -151,21 +204,22 @@ def upgrade(
 @main.command()
 @click.argument("checkout", type=click.Path(exists=True, file_okay=False, path_type=Path))
 @click.option("--repo", default=None, help="Repo name for the report (default: directory name).")
-@click.option("--target", default="django", show_default=True)
-@click.option("--new-version", required=True)
-@click.option("--old-version", required=True)
+@click.option("--target", default=None, help="Dependency (default: campaign.json).")
+@click.option("--new-version", default=None, help="(default: campaign.json)")
+@click.option("--old-version", default=None, help="(default: campaign.json)")
 @click.option("--base", default="origin/HEAD", show_default=True, help="Ref to diff against.")
 @click.pass_obj
 def review(
     config: Config,
     checkout: Path,
     repo: str | None,
-    target: str,
-    new_version: str,
-    old_version: str,
+    target: str | None,
+    new_version: str | None,
+    old_version: str | None,
     base: str,
 ) -> None:
     """Run the mechanical definition-of-done checks on an upgrade CHECKOUT."""
+    target, new_version, old_version = _resolve_versions(config, target, new_version, old_version)
     repo = repo or checkout.name
     checks = review_checkout(checkout, target, new_version, old_version, base=base)
     report = render_report(repo, checks)

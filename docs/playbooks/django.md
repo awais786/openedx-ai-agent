@@ -52,8 +52,51 @@ Known Django breaking-change patterns and fix recipes, each backed by a real cam
 | `CSRF_TRUSTED_ORIGINS` requires schemes (4.x) | CSRF failures in deployment/tests | Add `https://` schemes ("feat!: Django 4.0 and above, CSRF_TRUSTED_ORIGINS must include schemes") |
 | `Meta.index_together` removed (5.2) | System check errors / `makemigrations` failures | Convert to `Meta.indexes` and **generate new migrations** — flagged in the 5.2 thread as requiring manual intervention; django-upgrade does not handle it |
 
-`TODO`: extend with 5.2→6.x patterns as the next campaign reveals them (seed from the
-published 6.0/6.1 release notes).
+### Django 6.x patterns (seeded June 2026 from the official release notes — not yet campaign-verified)
+
+A 5.2 → 6.x campaign crosses everything removed in 6.0 AND 6.1. Curated for Open edX
+relevance from `django/django` `docs/releases/6.0.txt` and `docs/internals/deprecation.txt`:
+
+**Precursor (hard gate):** Django 6.0 supports **Python 3.12–3.14 only** — 5.2 is the last
+series with 3.10/3.11. The Python-floor campaign must finish first. Also `asgiref >= 3.9.1`.
+Django officially suggests third-party apps drop Django < 5.2 after 6.0 ships — matching our
+drop policy.
+
+**Removed in 6.0:**
+
+| Pattern | Symptom | Fix |
+|---|---|---|
+| `DEFAULT_AUTO_FIELD` now defaults to `BigAutoField` | Unintended `makemigrations` diffs (PK type change!) in repos that never set it (long-standing `models.W042` warning) | Set `DEFAULT_AUTO_FIELD = "django.db.models.AutoField"` explicitly (or per-app `default_auto_field`) to preserve current PKs — do NOT accept an auto-generated PK-type migration |
+| `Model.save()` / `asave()` positional args removed | `TypeError` on `save(True)`-style calls | Keyword-only: `save(force_insert=True)` |
+| `format_html()` without args/kwargs removed | `TypeError`/error on bare `format_html(s)` calls | Pass args, or use `mark_safe` where genuinely static |
+| `CheckConstraint(check=...)` kwarg removed | `TypeError` in models/migrations | Rename to `condition=` |
+| `forms.URLField` default scheme is now `https` | Test failures asserting `http://` normalization | Set expectations / explicit `assume_scheme` |
+| `BaseConstraint` positional args removed | `TypeError` in custom constraints | Keyword args |
+| `ModelAdmin.lookup_allowed()` requires `request` | `TypeError` in admin subclasses | Add `request` to the signature |
+| `django.urls.register_converter()` override disallowed | Error registering an existing converter name | Rename or dedupe converters |
+| `ModelAdmin.log_deletion()` / `LogEntryManager.log_action()` removed | `AttributeError` in admin auditing code | Use `log_deletions()` / `log_actions()` plural replacements |
+| Custom lookups/expressions: `as_sql()` params must be a tuple | Param-merge errors in custom ORM expressions | Return tuples; unpack as `(*lhs_params, *rhs_params)` |
+| Email internals overhauled (`SafeMIMEText`/`SafeMIMEMultipart`/`BadHeaderError` deprecated; undocumented `EmailMessage` internals changed) | Breakage in code subclassing email internals (e.g. ACE/email pipelines) | Audit subclasses; move to documented API / `email.message.MIMEPart` |
+| `Field.pre_save()` may be called more than once per save | Duplicated side effects (counters, timestamps) | Make `pre_save` idempotent |
+| JSON serializer always emits trailing newline | Golden-file/snapshot test diffs | Update fixtures |
+| `cx_Oracle` support removed | Oracle backends fail | N/A for openedx (long dropped) |
+
+**Removed in 6.1 (also crossed by a 6.2 campaign):**
+
+| Pattern | Symptom | Fix |
+|---|---|---|
+| `staticfiles.finders.find(all=...)` kwarg removed | `TypeError` in static-asset tooling | Use `find_all=` |
+| `auth.login()` / `alogin()` no longer fall back to `request.user` when `user=None` | Auth flows silently relying on the fallback break | Pass the user explicitly |
+| Postgres aggregates `ordering` kwarg removed (`ArrayAgg`, `JSONBAgg`, `StringAgg`) | `TypeError` in annotated queries | Use `order_by=` |
+| `RemoteUserMiddleware` subclasses overriding only `process_request` | Deprecation → breakage | Also override `aprocess_request()` |
+
+**Deprecated in 6.0 (fix the warnings during the campaign; removal in 7.0):** keyword-only
+params in `django.core.mail` APIs; `ADMINS`/`MANAGERS` as (name, address) tuples → plain
+address strings; postgres `StringAgg` → generally-available `django.db.models.StringAgg`;
+`urlize` default protocol flips to HTTPS in 7.0 (`URLIZE_ASSUME_HTTPS` transitional).
+
+`TODO`: re-verify against the 6.2 release notes at campaign kickoff and promote
+campaign-verified patterns (with PR references) into the table above.
 
 ---
 
