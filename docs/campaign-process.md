@@ -150,7 +150,10 @@ Canonical file set for a library upgrade (template: openedx/openedx-filters#287)
 | `Makefile` | Occasionally: add/repair `upgrade` / `compile-requirements` targets |
 
 Rules:
-- **Run the target's codemod first** (e.g. `django-upgrade --target-version X.Y`), committed
+- **Run the target's codemod first, if its playbook defines one** — codemods are
+  target-specific knowledge that lives in `playbooks/<target>.md` §3 (Django →
+  [django-upgrade](https://github.com/adamchainz/django-upgrade) for syntax compatibility;
+  Python → pyupgrade; targets without a codemod skip this step). Commit the codemod output
   separately from judgment-based fixes — keeps mechanical and reasoned changes reviewable
   apart. Codemods cannot detect all breaking changes (anything touching migrations needs
   manual work) — the codemod is the floor, never the whole job.

@@ -100,13 +100,33 @@ campaign-verified patterns (with PR references) into the table above.
 
 ---
 
+## 2b. Reference PRs (what "done right" looks like)
+
+| PR | What it demonstrates |
+|---|---|
+| [openedx/django-user-tasks#412](https://github.com/openedx/django-user-tasks/pull/412) | **The canonical first library PR** — the complete flow end to end: claimed per-repo ticket (#413) → `django-upgrade` codemod → checklist files (`tox.ini`, CI matrix, classifier, `test_settings`, version bump, CHANGELOG) → targeted code fixes (`conf.py` storage, `schema/urls.py`) → PR description linking the campaign Discourse thread and resolving the ticket. ~30 changed lines total. This is the shape the Dev agent's output is graded against. |
+| [openedx/openedx-filters#287](https://github.com/openedx/openedx-filters/pull/287) | The minimal config-only variant (no code fixes needed) — the seven-file checklist in its purest form. |
+
+**PR description conventions** (from #412): state that the codemod was run, link the
+campaign coordination thread, reference the per-repo ticket ("Created PR to resolve #N"),
+and note the version bump + changelog.
+
 ## 3. Codemod tooling
 
-- **[`django-upgrade`](https://pypi.org/project/django-upgrade/)** — run
-  `django-upgrade --target-version X.Y` as the first action on every repo, committed
-  separately from judgment-based fixes.
+- **[`django-upgrade`](https://github.com/adamchainz/django-upgrade)** (adamchainz) — the
+  campaign's standard **syntax-compatibility** codemod: mechanically rewrites code for the
+  target Django version (settings renames, deprecated call forms, etc.). Run it as the
+  FIRST action on every repo, committed separately from judgment-based fixes:
+
+  ```bash
+  pip install django-upgrade          # or: uvx django-upgrade
+  git ls-files -z -- '*.py' | xargs -0 django-upgrade --target-version 5.2
+  ```
+
 - **Known limitation (from the 5.2 campaign thread):** it cannot detect all breaking
-  changes — anything touching migrations (e.g. `index_together`) needs manual work.
+  changes — anything touching migrations (e.g. `index_together`) needs manual work, and
+  behavioral changes (storage APIs, signal semantics) are out of its scope entirely.
+  The codemod is the floor, never the whole job.
 
 ---
 

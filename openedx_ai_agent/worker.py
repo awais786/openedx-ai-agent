@@ -28,9 +28,10 @@ support while KEEPING {target} {old_version} support (dual-compatibility — a c
 that breaks {old_version} is a failure).
 
 Steps, in order:
-1. Run the codemod first if one exists for this target (e.g. \
-`django-upgrade --target-version {new_version}` over the package source), and commit \
-it separately with message "chore: apply django-upgrade codemod".
+1. If the target playbook's "Codemod tooling" section names a codemod for {target}, \
+install it (pip install) and run it exactly as the playbook shows, then commit the \
+result separately with message "chore: apply {target} codemod". If the playbook names \
+no codemod for this target, skip this step — do not invent one.
 2. Apply the per-repo checklist from the playbook (tox envlist, CI matrix, trove \
 classifiers, requirements recompile via `make upgrade` if available, version bump, \
 changelog entry).
